@@ -98,6 +98,7 @@ int main(void)
 #endif
 
     U_INT64 total_count = b1.count + b2.count;
+    free(boundsArray);
     printf("\nLevel %i has %llu\n",LEVEL,total_count);
 
     return 0;
