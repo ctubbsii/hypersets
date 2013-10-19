@@ -37,7 +37,7 @@ bool is_unique(GRAPH_T *graph, U_INT64 orig);
 U_INT64 next_permutation(GRAPH_T *graph, GRAPH_T *indexes);
 void swap_rowcol(GRAPH_T *graph, GRAPH_T *indexes, GRAPH_T x, GRAPH_T y);
 U_INT64 graph2int(GRAPH_T *graph);
-static void *doit( void *arg );
+static void* doit( void *arg );
 
 // thread-specific values passed from main
 typedef struct {
@@ -45,7 +45,6 @@ typedef struct {
   U_INT64 cmin;  // min candidate for a given LEVEL graph
   U_INT64 cmax;  // max candidate for a given LEVEL graph
   U_INT64 count;
-  bool done;
 } bounds;
 
 int main(void)
@@ -60,7 +59,6 @@ int main(void)
     bounds b2 = boundsArray[1];
 
     b1.count = 0;
-    b1.done = false;
     b1.cmin = cmin;
     // because we filter out "chunks" of candidates who don't end in a sink,
     // we need to make sure that b1's max, and b2's min are not in the middle
@@ -68,7 +66,6 @@ int main(void)
     b1.cmax = ((((cmax - cmin) / 2u) + cmin) & ~((ONE64<<LEVEL)-1)) -1;
 
     b2.count = 0;
-    b2.done = false;
     b2.cmin = b1.cmax + 1;
     b2.cmax = cmax;
 
@@ -87,15 +84,8 @@ int main(void)
     printf("Profiling level %i ...\n",LEVEL);
 #endif
 
-    while (1)
-      if (b1.done && b2.done)
-        break;
-      else
-#if LEVEL==7
-        sleep(60);
-#else
-        sleep(1);
-#endif
+    pthread_join(b1.tid, NULL);
+    pthread_join(b2.tid, NULL);
 
     U_INT64 total_count = b1.count + b2.count;
     free(boundsArray);
@@ -105,7 +95,7 @@ int main(void)
 }
 
 // threads created by main() that do the actual work start here
-static void *doit( void *arg )
+static void* doit( void *arg )
 {
     bounds *bnd = (bounds *) arg;
     pthread_detach( pthread_self() );
@@ -152,10 +142,7 @@ static void *doit( void *arg )
         ++bnd->count;
     }
   }
-
-     bnd->done = true;
-
-   return NULL;
+  return NULL;
 }
 
 // check to see if all nodes can be traversed.
