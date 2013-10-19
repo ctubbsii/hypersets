@@ -28,17 +28,11 @@
 #define CMAX (ONE64<<(LEVEL*LEVEL))-1
 #endif
 
-// mutex and shared counter
-pthread_mutex_t count_mutex = PTHREAD_MUTEX_INITIALIZER;
-U_INT64 total_count; /* number of unique minimal hypersets for this LEVEL */
-
 // function prototypes
 bool is_apg(GRAPH_T *graph);
 bool is_minimized(GRAPH_T *graph);
-void separate_p (GRAPH_T *graph, GRAPH_T *partitions, U_INT32 p,
-                U_INT32 num_partitions);
-bool can_separate(GRAPH_T *graph, GRAPH_T a, GRAPH_T b, GRAPH_T *partitions,
-                U_INT32 num_partitions);
+void separate_p (GRAPH_T *graph, GRAPH_T *partitions, U_INT32 p, U_INT32 num_partitions);
+bool can_separate(GRAPH_T *graph, GRAPH_T a, GRAPH_T b, GRAPH_T *partitions, U_INT32 num_partitions);
 bool is_unique(GRAPH_T *graph, U_INT64 orig);
 U_INT64 next_permutation(GRAPH_T *graph, GRAPH_T *indexes);
 void swap_rowcol(GRAPH_T *graph, GRAPH_T *indexes, GRAPH_T x, GRAPH_T y);
@@ -47,51 +41,44 @@ static void *doit( void *arg );
 
 // thread-specific values passed from main
 typedef struct {
+  pthread_t tid;
   U_INT64 cmin;  // min candidate for a given LEVEL graph
   U_INT64 cmax;  // max candidate for a given LEVEL graph
-  int thread;
+  U_INT64 count;
+  bool done;
 } bounds;
-
-// to determine if worker threads are complete
-bool work1;
-bool work2;
 
 int main(void)
 {
     U_INT64 cmin = CMIN; // min candidate for a given LEVEL graph
     U_INT64 cmax = CMAX; // max candidate for a given LEVEL graph
 
-    bounds *b1;
-    bounds *b2;
+    size_t nBounds = 2;
+    bounds* boundsArray = (bounds*) calloc( nBounds, sizeof(bounds) );
 
-    pthread_t tid1;  /* thread id */
-    pthread_t tid2;
+    bounds b1 = boundsArray[0];
+    bounds b2 = boundsArray[1];
 
-    work1 = false;
-    work2 = false;
-    total_count = 0;
-
-    b1 = (bounds *) calloc( 1, sizeof(bounds) );
-    b2 = (bounds *) calloc( 1, sizeof(bounds) );
-
-    b1->thread = 1;
-    b1->cmin = cmin;
+    b1.count = 0;
+    b1.done = false;
+    b1.cmin = cmin;
     // because we filter out "chunks" of candidates who don't end in a sink,
     // we need to make sure that b1's max, and b2's min are not in the middle
     // of a "chunk"
-    b1->cmax = ((((cmax - cmin) / 2u) + cmin) & ~((ONE64<<LEVEL)-1)) -1;
+    b1.cmax = ((((cmax - cmin) / 2u) + cmin) & ~((ONE64<<LEVEL)-1)) -1;
 
-    b2->thread = 2;
-    b2->cmin = b1->cmax + 1;
-    b2->cmax = cmax;
+    b2.count = 0;
+    b2.done = false;
+    b2.cmin = b1.cmax + 1;
+    b2.cmax = cmax;
 
-#ifdef DEUBG
+#ifdef DEBUG
     printf("B1: min %llu \t max %llu\nB2: min %llu \t max %llu\n",
-      b1->cmin,b1->cmax,b2->cmin,b2->cmax);
+      b1.cmin,b1.cmax,b2.cmin,b2.cmax);
 #endif
 
-    pthread_create( &tid1, NULL, &doit, b1 );
-    pthread_create( &tid2, NULL, &doit, b2 );
+    pthread_create( &b1.tid, NULL, &doit, &b1 );
+    pthread_create( &b2.tid, NULL, &doit, &b2 );
 
 #ifdef SECTION
     printf("Profiling section %i (MIN: %llu, MAX: %llu)of level %i...\n",
@@ -101,15 +88,16 @@ int main(void)
 #endif
 
     while (1)
-      if (work1 && work2)
+      if (b1.done && b2.done)
         break;
       else
 #if LEVEL==7
-        sleep(300);
+        sleep(60);
 #else
-        sleep(2);
+        sleep(1);
 #endif
 
+    U_INT64 total_count = b1.count + b2.count;
     printf("\nLevel %i has %llu\n",LEVEL,total_count);
 
     return 0;
@@ -124,7 +112,7 @@ static void *doit( void *arg )
     U_INT64 candidate;      // binary str represents a square adjacency matrix
     U_INT64 mask;           // binary mask
     U_INT32 row;            // iterator
-    U_INT64 my_candidate, temp, my_total=0;
+    U_INT64 my_candidate, temp;
     GRAPH_T graph[LEVEL] = {0}; // graph represented as an array
     mask = (ONE64<<LEVEL)-1;    // mask of LEVEL number of ones to isolate rows
 #ifdef DEBUG
@@ -155,23 +143,16 @@ static void *doit( void *arg )
        && is_unique(graph, my_candidate))
     {
 #ifdef SHOWNUM
-        printf("\n%llu",pay->candidate-1);
+        printf("\n%llu",pay.candidate-1);
 #endif
 #ifdef DEBUG
         printf("\tcounted");
 #endif
-        ++my_total;
+        ++bnd->count;
     }
   }
 
-     pthread_mutex_lock(&count_mutex);
-     total_count += my_total;
-     pthread_mutex_unlock(&count_mutex);
-
-     if (bnd->thread == 1)
-         work1 = true;
-     else
-         work2 = true;
+     bnd->done = true;
 
    return NULL;
 }
@@ -303,7 +284,6 @@ void separate_p (GRAPH_T *graph, GRAPH_T *partitions, U_INT32 p,
   GRAPH_T a=0, b;           // index of two nodes we are comparing
   GRAPH_T mask;             // binary mask for locating nodes
   GRAPH_T separated=0;      // remember nodes that separate from 'a'
-
   mask = ONE8<<(LEVEL-1); // position amask to bit for row 0
 
   // find the first node in this partition
