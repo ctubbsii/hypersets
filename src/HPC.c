@@ -9,16 +9,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
 
-#define U_INT64 unsigned long long
-#define U_INT32 unsigned long
-#define GRAPH_T unsigned char
+typedef uint8_t graph_t;
 #define ONE8 1u
-#define ONE32 1ul
-#define ONE64 1ull
+#define ONE32 ((uint32_t)1u)
+#define ONE64 ((uint64_t)1u)
 
 // define default bounds if not specified
 #ifndef CMIN
@@ -29,28 +28,28 @@
 #endif
 
 // function prototypes
-bool is_apg(GRAPH_T *graph);
-bool is_minimized(GRAPH_T *graph);
-void separate_p (GRAPH_T *graph, GRAPH_T *partitions, U_INT32 p, U_INT32 num_partitions);
-bool can_separate(GRAPH_T *graph, GRAPH_T a, GRAPH_T b, GRAPH_T *partitions, U_INT32 num_partitions);
-bool is_unique(GRAPH_T *graph, U_INT64 orig);
-U_INT64 next_permutation(GRAPH_T *graph, GRAPH_T *indexes);
-void swap_rowcol(GRAPH_T *graph, GRAPH_T *indexes, GRAPH_T x, GRAPH_T y);
-U_INT64 graph2int(GRAPH_T *graph);
+bool is_apg(graph_t *graph);
+bool is_minimized(graph_t *graph);
+void separate_p (graph_t *graph, graph_t *partitions, uint32_t p, uint32_t num_partitions);
+bool can_separate(graph_t *graph, graph_t a, graph_t b, graph_t *partitions, uint32_t num_partitions);
+bool is_unique(graph_t *graph, uint64_t orig);
+uint64_t next_permutation(graph_t *graph, graph_t *indexes);
+void swap_rowcol(graph_t *graph, graph_t *indexes, graph_t x, graph_t y);
+uint64_t graph2int(graph_t *graph);
 static void* doit( void *arg );
 
 // thread-specific values passed from main
 typedef struct {
   pthread_t tid;
-  U_INT64 cmin;  // min candidate for a given LEVEL graph
-  U_INT64 cmax;  // max candidate for a given LEVEL graph
-  U_INT64 count;
+  uint64_t cmin;  // min candidate for a given LEVEL graph
+  uint64_t cmax;  // max candidate for a given LEVEL graph
+  uint64_t count;
 } bounds;
 
 int main(void)
 {
-    U_INT64 cmin = CMIN; // min candidate for a given LEVEL graph
-    U_INT64 cmax = CMAX; // max candidate for a given LEVEL graph
+    uint64_t cmin = CMIN; // min candidate for a given LEVEL graph
+    uint64_t cmax = CMAX; // max candidate for a given LEVEL graph
 
     size_t nBounds = 2;
     bounds* boundsArray = (bounds*) calloc( nBounds, sizeof(bounds) );
@@ -70,26 +69,23 @@ int main(void)
     b2.cmax = cmax;
 
 #ifdef DEBUG
-    printf("B1: min %llu \t max %llu\nB2: min %llu \t max %llu\n",
-      b1.cmin,b1.cmax,b2.cmin,b2.cmax);
+    printf("B1: min %lu \t max %lu\nB2: min %lu \t max %lu\n", b1.cmin,b1.cmax,b2.cmin,b2.cmax);
 #endif
 
-    pthread_create( &b1.tid, NULL, &doit, &b1 );
-    pthread_create( &b2.tid, NULL, &doit, &b2 );
-
 #ifdef SECTION
-    printf("Profiling section %i (MIN: %llu, MAX: %llu)of level %i...\n",
-      SECTION,CMIN,CMAX,LEVEL);
+    printf("Profiling section %i (MIN: %lu, MAX: %lu)of level %i...\n", SECTION,CMIN,CMAX,LEVEL);
 #else
     printf("Profiling level %i ...\n",LEVEL);
 #endif
+    pthread_create( &b1.tid, NULL, &doit, &b1 );
+    pthread_create( &b2.tid, NULL, &doit, &b2 );
 
     pthread_join(b1.tid, NULL);
     pthread_join(b2.tid, NULL);
 
-    U_INT64 total_count = b1.count + b2.count;
+    uint64_t total_count = b1.count + b2.count;
     free(boundsArray);
-    printf("\nLevel %i has %llu\n",LEVEL,total_count);
+    printf("\nLevel %i has %lu\n",LEVEL,total_count);
 
     return 0;
 }
@@ -98,16 +94,14 @@ int main(void)
 static void* doit( void *arg )
 {
     bounds *bnd = (bounds *) arg;
-    pthread_detach( pthread_self() );
-
-    U_INT64 candidate;      // binary str represents a square adjacency matrix
-    U_INT64 mask;           // binary mask
-    U_INT32 row;            // iterator
-    U_INT64 my_candidate, temp;
-    GRAPH_T graph[LEVEL] = {0}; // graph represented as an array
+    uint64_t candidate;      // binary str represents a square adjacency matrix
+    uint64_t mask;           // binary mask
+    uint32_t row;            // iterator
+    uint64_t my_candidate, temp;
+    graph_t graph[LEVEL] = {0}; // graph represented as an array
     mask = (ONE64<<LEVEL)-1;    // mask of LEVEL number of ones to isolate rows
 #ifdef DEBUG
-    printf("MIN: %llu \nMAX: %llu \nmask: %llu\n",cmin,cmax,mask);
+    printf("MIN: %lu \nMAX: %lu \nmask: %lu\n",bnd->cmin,bnd->cmax,mask);
 #endif
 
   candidate = bnd->cmin;
@@ -117,7 +111,7 @@ static void* doit( void *arg )
     my_candidate=temp=candidate;
 
 #ifdef DEBUG
-    printf("\nCandidate: %llu:\n",temp);
+    printf("\nCandidate: %lu:\n",temp);
 #endif
 
     candidate += mask+1;
@@ -125,7 +119,7 @@ static void* doit( void *arg )
     // create graph from candidate
     for (row=0; row<LEVEL; ++row)
     {
-      graph[LEVEL-1-row] = (GRAPH_T)(temp & mask);
+      graph[LEVEL-1-row] = (graph_t)(temp & mask);
       temp >>= LEVEL;
     }
 
@@ -133,9 +127,6 @@ static void* doit( void *arg )
     if (is_apg(graph) && is_minimized(graph)
        && is_unique(graph, my_candidate))
     {
-#ifdef SHOWNUM
-        printf("\n%llu",pay.candidate-1);
-#endif
 #ifdef DEBUG
         printf("\tcounted");
 #endif
@@ -150,11 +141,11 @@ static void* doit( void *arg )
 // other than the last row.
 // also filter for candidates that aren't traversed in the order
 // their of their rows (throws out many duplicates, but not all)
-bool is_apg(GRAPH_T *graph)
+bool is_apg(graph_t *graph)
 {
-  U_INT32 row = 0;  // iterator
-  U_INT32 mask = 1; // binary mask
-  U_INT32 visited = ONE32<<(LEVEL-1); // mark row 0 as visited
+  uint32_t row = 0;  // iterator
+  uint32_t mask = 1; // binary mask
+  uint32_t visited = ONE32<<(LEVEL-1); // mark row 0 as visited
 
 #ifdef DEBUG
   printf("\n Check if APG");
@@ -185,7 +176,7 @@ bool is_apg(GRAPH_T *graph)
   // check if last row is visited (we ensure it is a sink in the main loop)
   if (visited & mask)
   {
-    GRAPH_T ones = 0, zeros = 0;
+    graph_t ones = 0, zeros = 0;
 #ifdef DEBUG
     printf("\tis APG");
 #endif
@@ -213,18 +204,18 @@ bool is_apg(GRAPH_T *graph)
 }
 
 // attempt to minimize the graph
-bool is_minimized(GRAPH_T *graph)
+bool is_minimized(graph_t *graph)
 {
 #ifdef DEBUG
   printf("\n Check if minimized");
 #endif
 #if LEVEL>2
-  U_INT32 row=0;            // iterator
-  U_INT32 num_partitions=2; // at least two partitions(sink and root)
-  U_INT32 p;                // index of current partition
-  GRAPH_T partitions[LEVEL] = {0}; // room to separate all nodes
-  GRAPH_T sinkmask = 1;     // binary mask to check for edge to sink
-  GRAPH_T mask;             // binary mask
+  uint32_t row=0;            // iterator
+  uint32_t num_partitions=2; // at least two partitions(sink and root)
+  uint32_t p;                // index of current partition
+  graph_t partitions[LEVEL] = {0}; // room to separate all nodes
+  graph_t sinkmask = 1;     // binary mask to check for edge to sink
+  graph_t mask;             // binary mask
   bool modified = false;    // for checking if P(k)==P(k-1)
 
   mask = ONE8<<(LEVEL-1);   // mask positioned under root
@@ -266,12 +257,12 @@ bool is_minimized(GRAPH_T *graph)
 }
 
 // helper function for splitting up a single partition
-void separate_p (GRAPH_T *graph, GRAPH_T *partitions, U_INT32 p,
-                U_INT32 num_partitions)
+void separate_p (graph_t *graph, graph_t *partitions, uint32_t p,
+                uint32_t num_partitions)
 {
-  GRAPH_T a=0, b;           // index of two nodes we are comparing
-  GRAPH_T mask;             // binary mask for locating nodes
-  GRAPH_T separated=0;      // remember nodes that separate from 'a'
+  graph_t a=0, b;           // index of two nodes we are comparing
+  graph_t mask;             // binary mask for locating nodes
+  graph_t separated=0;      // remember nodes that separate from 'a'
   mask = ONE8<<(LEVEL-1); // position amask to bit for row 0
 
   // find the first node in this partition
@@ -305,14 +296,14 @@ void separate_p (GRAPH_T *graph, GRAPH_T *partitions, U_INT32 p,
 }
 
 // check if two nodes in partition can separate
-bool can_separate(GRAPH_T *graph, GRAPH_T a, GRAPH_T b, GRAPH_T *partitions,
-                U_INT32 num_partitions)
+bool can_separate(graph_t *graph, graph_t a, graph_t b, graph_t *partitions,
+                uint32_t num_partitions)
 {
 #ifdef DEBUG
   printf("\n Check if unique");
 #endif
-  U_INT32 p=0;
-  GRAPH_T mask;
+  uint32_t p=0;
+  graph_t mask;
 
   mask=ONE8<<(LEVEL-1); // position mask under first potential child
 
@@ -341,16 +332,16 @@ bool can_separate(GRAPH_T *graph, GRAPH_T a, GRAPH_T b, GRAPH_T *partitions,
 // check for uniqueness by determining if this graph has duplicates
 // through row swapping. Only count if this decoration
 // has the highest value of all possible duplicates
-bool is_unique(GRAPH_T *graph, U_INT64 orig)
+bool is_unique(graph_t *graph, uint64_t orig)
 {
 #if LEVEL > 3
-  GRAPH_T equiv_graph[LEVEL];
-  GRAPH_T indexes[LEVEL]; // array holds current permute of middle row indexes
-  U_INT32 i;              // interators
-  U_INT64 perm;
+  graph_t equiv_graph[LEVEL];
+  graph_t indexes[LEVEL]; // array holds current permute of middle row indexes
+  uint32_t i;              // interators
+  uint64_t perm;
 
   // create copy of graph to determine equivalent permutations
-  memcpy(equiv_graph,graph,LEVEL*sizeof(GRAPH_T));
+  memcpy(equiv_graph,graph,LEVEL*sizeof(graph_t));
 
   // create initial permutation of {1,2,3,...,LEVEL-2}
   for (i=0; i<LEVEL; ++i)
@@ -360,7 +351,7 @@ bool is_unique(GRAPH_T *graph, U_INT64 orig)
     if (perm > orig)
       return false;
 #ifdef DEBUG
-  if (perm == orig) printf("Hey! this equals that one! %llu\n",orig);
+  if (perm == orig) printf("Hey! this equals that one! %lu\n",orig);
 #endif
 #endif
   return true;
@@ -375,10 +366,10 @@ bool is_unique(GRAPH_T *graph, U_INT64 orig)
 // Adapted from Kenneth Rosen's Discrete Mathematics and its Applications,
 //  6th edition, p.384, Algorithm 1: Generating the Next Permutation
 //  in Lexicographic Order
-U_INT64 next_permutation(GRAPH_T *graph, GRAPH_T *indexes)
+uint64_t next_permutation(graph_t *graph, graph_t *indexes)
 {
-  GRAPH_T k,j,r,s;
-  U_INT64 ans;
+  graph_t k,j,r,s;
+  uint64_t ans;
 
   k = LEVEL-3;
   while (indexes[k] > indexes[k+1]) k--;
@@ -405,16 +396,16 @@ U_INT64 next_permutation(GRAPH_T *graph, GRAPH_T *indexes)
   // compare values
   ans = graph2int(graph);
 #ifdef DEBUG
-  printf("Permutation is %llu\n",ans);
+  printf("Permutation is %lu\n",ans);
 #endif
   return ans;
 }
 
 // swap a single row and column, and the indexes that refer to them
 // for use with next_permutation()
-void swap_rowcol(GRAPH_T *graph, GRAPH_T *indexes, GRAPH_T x, GRAPH_T y)
+void swap_rowcol(graph_t *graph, graph_t *indexes, graph_t x, graph_t y)
 {
-  GRAPH_T b1, b2, r;
+  graph_t b1, b2, r;
 
   // swap indexes
   indexes[x] ^= indexes[y];
@@ -442,10 +433,10 @@ void swap_rowcol(GRAPH_T *graph, GRAPH_T *indexes, GRAPH_T x, GRAPH_T y)
 }
 
 // create integer from graph
-U_INT64 graph2int(GRAPH_T *graph)
+uint64_t graph2int(graph_t *graph)
 {
-  U_INT64 value=0;
-  U_INT32 i;
+  uint64_t value=0;
+  uint32_t i;
   for (i=0; i<LEVEL; ++i)
   {
     value <<= LEVEL;
