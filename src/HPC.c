@@ -130,6 +130,13 @@ static void* doit( void *arg )
 #ifdef DEBUG
         printf("\tcounted");
 #endif
+        for (int r=0; r<LEVEL; ++r) {
+          for (int c=0; c<LEVEL; ++c) {
+            printf("%d ", (graph[r]>>c) & ONE8);
+          }
+          printf("\n");
+        }
+        printf("\n");
         ++bnd->count;
     }
   }
